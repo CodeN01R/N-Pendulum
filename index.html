@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>N-Pendulum</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #08080c;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    color: #aaa;
+    cursor: crosshair;
+  }
+
+  canvas { display: block; }
+
+  .hud {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 28px;
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.08em;
+    color: #555;
+    user-select: none;
+    z-index: 10;
+  }
+  .hud span { color: #7af; }
+
+  .controls {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 10;
+  }
+
+  .controls button {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #888;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+  .controls button:hover {
+    background: rgba(255,255,255,0.08);
+    color: #ccc;
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .title {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 10;
+    user-select: none;
+  }
+  .title h1 {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    color: #666;
+    text-transform: uppercase;
+  }
+  .title p {
+    font-size: 10px;
+    font-weight: 300;
+    color: #333;
+    margin-top: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.1em;
+    color: #445;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 1.5s ease;
+    text-transform: uppercase;
+  }
+  .hint.hidden { opacity: 0; }
+
+  .slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 2px;
+  }
+  .slider-group label {
+    font-size: 9px;
+    font-weight: 300;
+    letter-spacing: 0.12em;
+    color: #555;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+  }
+  .slider-group label span { color: #7af; }
+
+  .slider-group input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #5a8fbf;
+    border: 2px solid #08080c;
+    box-shadow: 0 0 6px rgba(122,191,255,0.3);
+    cursor: pointer;
+  }
+  .slider-group input[type="range"]::-webkit-slider-thumb:hover {
+    background: #7abfff;
+  }
+  .slider-group input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #5a8fbf;
+    border: 2px solid #08080c;
+    box-shadow: 0 0 6px rgba(122,191,255,0.3);
+    cursor: pointer;
+  }
+
+  .bottom-slider {
+    position: fixed;
+    bottom: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 280px;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<div class="title">
+  <h1 id="titleText">Double Pendulum</h1>
+  <p>Lagrangian dynamics · chaotic system</p>
+</div>
+
+<div class="controls">
+  <button onclick="resetDefault()">Reset</button>
+  <button id="pauseBtn" onclick="togglePause()">Pause</button>
+  <button id="traceBtn" onclick="toggleTrace()">Trail: On</button>
+  <button id="trailModeBtn" onclick="toggleTrailMode()">Trail: Tip</button>
+  <div class="slider-group">
+    <label>Time <span id="timeVal">1.00×</span></label>
+    <input type="range" id="timeSlider" min="0.05" max="2" step="0.05" value="1">
+  </div>
+</div>
+
+<div class="hint" id="hint">Drag the bobs to set starting position</div>
+
+<canvas id="c"></canvas>
+
+<div class="bottom-slider">
+  <div class="slider-group">
+    <label>Segments <span id="countVal">2</span></label>
+    <input type="range" id="countSlider" min="0" max="100" step="1" value="0">
+  </div>
+</div>
+
+<div class="hud">
+  <div>θ₁ <span id="a1v">0.00</span>°</div>
+  <div>θₙ <span id="a2v">0.00</span>°</div>
+  <div>ω₁ <span id="w1v">0.00</span></div>
+  <div>ωₙ <span id="w2v">0.00</span></div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, ox, oy;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  ox = W / 2;
+  oy = H * 0.32;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const g = 9.81;
+const bobMass = 1.0;
+const totalLength = 280;
+const dt = 0.03;
+
+let paused = false;
+let traceEnabled = true;
+let timeScale = 1;
+let N = 2;
+
+let theta, omega;
+const maxTrail = 2400;
+let trail = [];
+let trailAll = false;
+let trails = [];
+
+function maxTrailLen() {
+  if (!trailAll) return maxTrail;
+  // Scaling down per-joint trail length for performance
+  if (N <= 5) return 1200;
+  if (N <= 15) return 400;
+  if (N <= 30) return 150;
+  return 60;
+}
+
+function clearAllTrails() {
+  trail = [];
+  trails = [];
+  for (let i = 0; i < N; i++) trails.push([]);
+}
+
+let dragging = -1;
+const grabRadius = 22;
+const hintEl = document.getElementById('hint');
+let hintDismissed = false;
+
+const MAX_N = 100;
+const _M = new Float64Array(MAX_N * MAX_N);
+const _F = new Float64Array(MAX_N);
+const _tmpTheta = new Float64Array(MAX_N);
+const _tmpOmega = new Float64Array(MAX_N);
+const _k1t = new Float64Array(MAX_N);
+const _k1w = new Float64Array(MAX_N);
+const _k2t = new Float64Array(MAX_N);
+const _k2w = new Float64Array(MAX_N);
+const _k3t = new Float64Array(MAX_N);
+const _k3w = new Float64Array(MAX_N);
+const _k4t = new Float64Array(MAX_N);
+const _k4w = new Float64Array(MAX_N);
+
+function segLen() { return totalLength / N; }
+
+function initAngles(n) {
+  N = n;
+  theta = new Float64Array(N);
+  omega = new Float64Array(N);
+  // Scaling down initial displacement for large N to avoid instant blowup
+  const scale = N <= 5 ? 1.0 : N <= 15 ? 0.6 : N <= 30 ? 0.35 : N <= 60 ? 0.2 : 0.1;
+  for (let i = 0; i < N; i++) {
+    theta[i] = Math.PI * (0.75 - 0.25 * i / Math.max(N - 1, 1)) * scale;
+  }
+  clearAllTrails();
+}
+initAngles(2);
+
+// Mass matrix: M[i][j] = L² · cos(θ_i − θ_j) · μ(i,j)
+// where μ(i,j) = (N − max(i,j)) · m  (mass from max(i,j) to end)
+// Force:  F[i] = −Σ_j L² · sin(θ_i − θ_j) · ω_j² · μ(i,j) − g·L·sin(θ_i)·μ_i
+// Solve M·α = F for angular accelerations α
+
+function computeAccelerations(th, om, outAlpha) {
+  const L = segLen();
+  const L2 = L * L;
+  const m = bobMass;
+
+  for (let i = 0; i < N; i++) {
+    let fi = 0;
+    const mu_i = (N - i) * m;
+    for (let j = 0; j < N; j++) {
+      const mu_ij = (N - Math.max(i, j)) * m;
+      const dij = th[i] - th[j];
+      _M[i * N + j] = L2 * Math.cos(dij) * mu_ij;
+      fi -= L2 * Math.sin(dij) * om[j] * om[j] * mu_ij;
+    }
+    fi -= g * L * Math.sin(th[i]) * mu_i;
+    _F[i] = fi;
+  }
+
+  // Gaussian elimination with partial pivoting
+  for (let col = 0; col < N; col++) {
+    let maxVal = Math.abs(_M[col * N + col]);
+    let maxRow = col;
+    for (let row = col + 1; row < N; row++) {
+      const v = Math.abs(_M[row * N + col]);
+      if (v > maxVal) { maxVal = v; maxRow = row; }
+    }
+    if (maxRow !== col) {
+      for (let j = col; j < N; j++) {
+        const ri = col * N + j, rj = maxRow * N + j;
+        const tmp = _M[ri]; _M[ri] = _M[rj]; _M[rj] = tmp;
+      }
+      const tmp = _F[col]; _F[col] = _F[maxRow]; _F[maxRow] = tmp;
+    }
+    const pivot = _M[col * N + col];
+    if (Math.abs(pivot) < 1e-15) continue;
+    for (let row = col + 1; row < N; row++) {
+      const factor = _M[row * N + col] / pivot;
+      for (let j = col + 1; j < N; j++) {
+        _M[row * N + j] -= factor * _M[col * N + j];
+      }
+      _F[row] -= factor * _F[col];
+    }
+  }
+  for (let row = N - 1; row >= 0; row--) {
+    let sum = _F[row];
+    for (let j = row + 1; j < N; j++) {
+      sum -= _M[row * N + j] * _F[j];
+    }
+    const diag = _M[row * N + row];
+    _F[row] = Math.abs(diag) > 1e-15 ? sum / diag : 0;
+  }
+
+  for (let i = 0; i < N; i++) outAlpha[i] = _F[i];
+}
+
+function effectiveDt() {
+  // Smaller timestep for more segments
+  if (N <= 5) return dt;
+  if (N <= 15) return dt * 0.5;
+  if (N <= 30) return dt * 0.25;
+  if (N <= 60) return dt * 0.12;
+  return dt * 0.06;
+}
+
+function stepsPerFrame() {
+  // More substeps to compensate for smaller dt (for stability)
+  if (N <= 5) return 4;
+  if (N <= 15) return 6;
+  if (N <= 30) return 8;
+  if (N <= 60) return 10;
+  return 12;
+}
+
+function step() {
+  const tdt = effectiveDt() * timeScale;
+
+  computeAccelerations(theta, omega, _k1w);
+  for (let i = 0; i < N; i++) { _k1t[i] = omega[i]; }
+
+  for (let i = 0; i < N; i++) {
+    _tmpTheta[i] = theta[i] + _k1t[i] * tdt * 0.5;
+    _tmpOmega[i] = omega[i] + _k1w[i] * tdt * 0.5;
+  }
+  computeAccelerations(_tmpTheta, _tmpOmega, _k2w);
+  for (let i = 0; i < N; i++) { _k2t[i] = _tmpOmega[i]; }
+
+  for (let i = 0; i < N; i++) {
+    _tmpTheta[i] = theta[i] + _k2t[i] * tdt * 0.5;
+    _tmpOmega[i] = omega[i] + _k2w[i] * tdt * 0.5;
+  }
+  computeAccelerations(_tmpTheta, _tmpOmega, _k3w);
+  for (let i = 0; i < N; i++) { _k3t[i] = _tmpOmega[i]; }
+
+  for (let i = 0; i < N; i++) {
+    _tmpTheta[i] = theta[i] + _k3t[i] * tdt;
+    _tmpOmega[i] = omega[i] + _k3w[i] * tdt;
+  }
+  computeAccelerations(_tmpTheta, _tmpOmega, _k4w);
+  for (let i = 0; i < N; i++) { _k4t[i] = _tmpOmega[i]; }
+
+  for (let i = 0; i < N; i++) {
+    theta[i] += (_k1t[i] + 2*_k2t[i] + 2*_k3t[i] + _k4t[i]) * tdt / 6;
+    omega[i] += (_k1w[i] + 2*_k2w[i] + 2*_k3w[i] + _k4w[i]) * tdt / 6;
+  }
+
+  // Light damping for high N (to prevent energy blowup)
+  if (N > 10) {
+    const damp = N > 50 ? 0.9995 : N > 20 ? 0.9998 : 0.9999;
+    for (let i = 0; i < N; i++) omega[i] *= damp;
+  }
+
+  // Stability guard: if anything went NaN/Inf, reset (to avoid crashing)
+  let blown = false;
+  for (let i = 0; i < N; i++) {
+    if (!isFinite(theta[i]) || !isFinite(omega[i])) { blown = true; break; }
+  }
+  if (blown) {
+    initAngles(N);
+  }
+}
+
+function getJoints() {
+  const L = segLen();
+  const joints = [{ x: ox, y: oy }];
+  let x = ox, y = oy;
+  for (let i = 0; i < N; i++) {
+    const th = isFinite(theta[i]) ? theta[i] : 0;
+    x += L * Math.sin(th);
+    y += L * Math.cos(th);
+    joints.push({ x, y });
+  }
+  return joints;
+}
+
+function hslForIndex(i, total) {
+  const t = i / total;
+  const hue = 200 + t * 40;
+  const sat = 60 + t * 30;
+  const lit = 30 + t * 42;
+  const alpha = t * t;
+  return `hsla(${hue}, ${sat}%, ${lit}%, ${alpha.toFixed(3)})`;
+}
+
+function draw() {
+  ctx.fillStyle = traceEnabled ? 'rgba(8, 8, 12, 0.15)' : '#08080c';
+  ctx.fillRect(0, 0, W, H);
+
+  const joints = getJoints();
+
+  if (traceEnabled) {
+    if (trailAll) {
+      for (let ji = 0; ji < Math.min(trails.length, N); ji++) {
+        const tr = trails[ji];
+        if (tr.length < 2) continue;
+        const hue = 190 + (ji / Math.max(N - 1, 1)) * 140;
+        if (N > 15) {
+          ctx.beginPath();
+          ctx.moveTo(tr[0].x, tr[0].y);
+          for (let i = 1; i < tr.length; i++) ctx.lineTo(tr[i].x, tr[i].y);
+          const t = 0.7;
+          ctx.strokeStyle = `hsla(${hue}, 75%, 55%, ${(N <= 30 ? 0.5 : 0.35).toFixed(2)})`;
+          ctx.lineWidth = N <= 30 ? 0.8 : 0.5;
+          ctx.stroke();
+        } else {
+          for (let i = 1; i < tr.length; i++) {
+            const t = i / tr.length;
+            ctx.beginPath();
+            ctx.moveTo(tr[i-1].x, tr[i-1].y);
+            ctx.lineTo(tr[i].x, tr[i].y);
+            ctx.strokeStyle = `hsla(${hue}, 75%, ${30 + t * 40}%, ${(t * t * 0.85).toFixed(3)})`;
+            ctx.lineWidth = 0.6 + t * 1.6;
+            ctx.stroke();
+          }
+        }
+      }
+    } else if (trail.length > 1) {
+      if (trail.length < 500) {
+        for (let i = 1; i < trail.length; i++) {
+          ctx.beginPath();
+          ctx.moveTo(trail[i-1].x, trail[i-1].y);
+          ctx.lineTo(trail[i].x, trail[i].y);
+          ctx.strokeStyle = hslForIndex(i, trail.length);
+          ctx.lineWidth = 0.8 + (i / trail.length) * 1.8;
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
+        ctx.strokeStyle = 'hsla(225, 80%, 65%, 0.6)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = N <= 20 ? 1.5 : 1;
+  ctx.beginPath();
+  ctx.moveTo(joints[0].x, joints[0].y);
+  for (let i = 1; i <= N; i++) ctx.lineTo(joints[i].x, joints[i].y);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(ox, oy, 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#333';
+  ctx.fill();
+
+  const bobSize = N <= 5 ? 7 : N <= 15 ? 5 : N <= 30 ? 3 : 2;
+  for (let i = 0; i < N; i++) {
+    const j = joints[i + 1];
+    const isFirst = i === 0;
+    const isLast = i === N - 1;
+    const isDragged = dragging === i;
+
+    if (isLast) {
+      ctx.beginPath();
+      ctx.arc(j.x, j.y, isDragged ? 8 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = isDragged ? '#a0d4ff' : '#7abfff';
+      ctx.fill();
+      if (isDragged) {
+        ctx.beginPath();
+        ctx.arc(j.x, j.y, 18, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(122,191,255,0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      if (isFinite(j.x) && isFinite(j.y)) {
+        const glow = ctx.createRadialGradient(j.x, j.y, 0, j.x, j.y, 24);
+        glow.addColorStop(0, 'rgba(122,191,255,0.25)');
+        glow.addColorStop(1, 'rgba(122,191,255,0)');
+        ctx.beginPath();
+        ctx.arc(j.x, j.y, 24, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
+        ctx.fill();
+      }
+    } else if (isFirst) {
+      ctx.beginPath();
+      ctx.arc(j.x, j.y, isDragged ? 9 : 7, 0, Math.PI * 2);
+      ctx.fillStyle = isDragged ? '#5a8fbf' : '#3a5f8a';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(j.x, j.y, isDragged ? 16 : 11, 0, Math.PI * 2);
+      ctx.strokeStyle = isDragged ? 'rgba(100,180,255,0.35)' : 'rgba(100,180,255,0.15)';
+      ctx.lineWidth = isDragged ? 2 : 1;
+      ctx.stroke();
+    } else if (N <= 30) {
+      const t = i / (N - 1);
+      const hue = 200 + t * 60;
+      ctx.beginPath();
+      ctx.arc(j.x, j.y, isDragged ? bobSize + 3 : bobSize, 0, Math.PI * 2);
+      ctx.fillStyle = isDragged
+        ? `hsla(${hue}, 80%, 70%, 0.9)`
+        : `hsla(${hue}, 60%, 50%, 0.5)`;
+      ctx.fill();
+      if (isDragged) {
+        ctx.beginPath();
+        ctx.arc(j.x, j.y, 16, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.35)`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function updateHUD() {
+  const toDeg = r => isFinite(r) ? ((r % (2*Math.PI)) * 180 / Math.PI).toFixed(1) : '—';
+  const toFixed = r => isFinite(r) ? r.toFixed(2) : '—';
+  document.getElementById('a1v').textContent = toDeg(theta[0]);
+  document.getElementById('a2v').textContent = toDeg(theta[N - 1]);
+  document.getElementById('w1v').textContent = toFixed(omega[0]);
+  document.getElementById('w2v').textContent = toFixed(omega[N - 1]);
+}
+
+function loop() {
+  if (!paused) {
+    const spf = stepsPerFrame();
+    for (let s = 0; s < spf; s++) step();
+    if (traceEnabled) {
+      const joints = getJoints();
+      const mt = maxTrailLen();
+      if (trailAll) {
+        while (trails.length < N) trails.push([]);
+        for (let i = 0; i < N; i++) {
+          const j = joints[i + 1];
+          if (isFinite(j.x) && isFinite(j.y)) {
+            trails[i].push({ x: j.x, y: j.y });
+            if (trails[i].length > mt) trails[i].shift();
+          }
+        }
+      } else {
+        const tip = joints[N];
+        if (isFinite(tip.x) && isFinite(tip.y)) {
+          trail.push({ x: tip.x, y: tip.y });
+          if (trail.length > mt) trail.shift();
+        }
+      }
+    }
+  }
+  if (dragging >= 0) relaxChain();
+
+  draw();
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+loop();
+setTimeout(() => { if (!hintDismissed) { hintDismissed = true; hintEl.classList.add('hidden'); } }, 5000);
+
+const countSlider = document.getElementById('countSlider');
+const countValEl = document.getElementById('countVal');
+const titleText = document.getElementById('titleText');
+const lnMin = Math.log(2), lnMax = Math.log(100);
+
+const ordinals = ['','','Double','Triple','Quadruple','Quintuple','Sextuple','Septuple','Octuple','Nonuple','Decuple'];
+
+function sliderToCount(v) {
+  return Math.round(Math.exp(lnMin + (lnMax - lnMin) * (v / 100)));
+}
+
+function updateTitle(n) {
+  if (n <= 10 && ordinals[n]) {
+    titleText.textContent = ordinals[n] + ' Pendulum';
+  } else {
+    titleText.textContent = n + '-Pendulum';
+  }
+}
+
+countSlider.addEventListener('input', () => {
+  const newN = sliderToCount(parseFloat(countSlider.value));
+  if (newN === N) return;
+  initAngles(newN);
+  countValEl.textContent = N;
+  updateTitle(N);
+  ctx.fillStyle = '#08080c';
+  ctx.fillRect(0, 0, W, H);
+});
+
+const timeSlider = document.getElementById('timeSlider');
+const timeValEl = document.getElementById('timeVal');
+timeSlider.addEventListener('input', () => {
+  timeScale = parseFloat(timeSlider.value);
+  timeValEl.textContent = timeScale.toFixed(2) + '×';
+});
+
+// Fluid chain relaxation during drag
+function relaxChain() {
+  if (dragging < 0 || N < 2) return;
+
+  for (let i = dragging + 1; i < N; i++) {
+    const distFromGrab = i - dragging;
+    const followWeight = Math.pow(0.65, distFromGrab);
+    const target = theta[i - 1] * followWeight;
+    let delta = target - theta[i];
+    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
+    delta = Math.max(-0.15, Math.min(0.15, delta * 0.18));
+    theta[i] += delta;
+  }
+
+  for (let i = dragging - 2; i >= 0; i--) {
+    const distFromGrab = dragging - i;
+    const pullWeight = Math.pow(0.35, distFromGrab);
+    let delta = theta[i + 1] - theta[i];
+    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
+    delta = Math.max(-0.06, Math.min(0.06, delta * 0.06 * pullWeight));
+    theta[i] += delta;
+  }
+}
+
+function mousePos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
+
+canvas.addEventListener('pointerdown', (e) => {
+  const m = mousePos(e);
+  const joints = getJoints();
+
+  let best = -1, bestD = grabRadius;
+
+  const tipD = dist(m.x, m.y, joints[N].x, joints[N].y);
+  if (tipD < bestD) { best = N - 1; bestD = tipD; }
+
+  const firstD = dist(m.x, m.y, joints[1].x, joints[1].y);
+  if (firstD < bestD) { best = 0; bestD = firstD; }
+
+  if (N <= 30) {
+    for (let i = 1; i < N - 1; i++) {
+      const d = dist(m.x, m.y, joints[i+1].x, joints[i+1].y);
+      if (d < bestD) { best = i; bestD = d; }
+    }
+  }
+
+  if (best >= 0) {
+    dragging = best;
+    paused = true;
+    pauseBtn.textContent = 'Resume';
+    omega.fill(0);
+    clearAllTrails();
+    ctx.fillStyle = '#08080c';
+    ctx.fillRect(0, 0, W, H);
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = 'grabbing';
+    if (!hintDismissed) { hintDismissed = true; hintEl.classList.add('hidden'); }
+  }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const m = mousePos(e);
+
+  if (dragging >= 0) {
+    const L = segLen();
+    let px = ox, py = oy;
+    for (let i = 0; i < dragging; i++) {
+      px += L * Math.sin(theta[i]);
+      py += L * Math.cos(theta[i]);
+    }
+
+    let dx = m.x - px;
+    let dy = m.y - py;
+    const d = Math.hypot(dx, dy);
+
+    const minDist = L * 0.15;
+    if (d < minDist) {
+      dx = Math.sin(theta[dragging]) * minDist;
+      dy = Math.cos(theta[dragging]) * minDist;
+    }
+
+    const rawTarget = Math.atan2(dx, dy);
+    let delta = rawTarget - theta[dragging];
+    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
+    theta[dragging] += delta;
+  } else {
+    const joints = getJoints();
+    let near = false;
+    if (N > 30) {
+      near = dist(m.x, m.y, joints[1].x, joints[1].y) < grabRadius
+          || dist(m.x, m.y, joints[N].x, joints[N].y) < grabRadius;
+    } else {
+      for (let i = 1; i <= N; i++) {
+        if (dist(m.x, m.y, joints[i].x, joints[i].y) < grabRadius) { near = true; break; }
+      }
+    }
+    canvas.style.cursor = near ? 'grab' : 'crosshair';
+  }
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (dragging >= 0) {
+    dragging = -1;
+    canvas.style.cursor = 'crosshair';
+    omega.fill(0);
+  }
+});
+
+const pauseBtn = document.getElementById('pauseBtn');
+
+function resetDefault() {
+  initAngles(N);
+  paused = false;
+  pauseBtn.textContent = 'Pause';
+  ctx.fillStyle = '#08080c';
+  ctx.fillRect(0, 0, W, H);
+}
+
+function togglePause() {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+}
+
+const traceBtn = document.getElementById('traceBtn');
+function toggleTrace() {
+  traceEnabled = !traceEnabled;
+  traceBtn.textContent = traceEnabled ? 'Trail: On' : 'Trail: Off';
+  if (!traceEnabled) {
+    clearAllTrails();
+    ctx.fillStyle = '#08080c';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+const trailModeBtn = document.getElementById('trailModeBtn');
+function toggleTrailMode() {
+  trailAll = !trailAll;
+  trailModeBtn.textContent = trailAll ? 'Trail: All' : 'Trail: Tip';
+  clearAllTrails();
+  ctx.fillStyle = '#08080c';
+  ctx.fillRect(0, 0, W, H);
+}
+</script>
+</body>
+</html>
