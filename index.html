@@ -234,7 +234,7 @@ let trails = [];
 
 function maxTrailLen() {
   if (!trailAll) return maxTrail;
-  // Scaling down per-joint trail length for performance
+  // Scale down per-joint trail length for performance
   if (N <= 5) return 1200;
   if (N <= 15) return 400;
   if (N <= 30) return 150;
@@ -272,7 +272,6 @@ function initAngles(n) {
   N = n;
   theta = new Float64Array(N);
   omega = new Float64Array(N);
-  // Scaling down initial displacement for large N to avoid instant blowup
   const scale = N <= 5 ? 1.0 : N <= 15 ? 0.6 : N <= 30 ? 0.35 : N <= 60 ? 0.2 : 0.1;
   for (let i = 0; i < N; i++) {
     theta[i] = Math.PI * (0.75 - 0.25 * i / Math.max(N - 1, 1)) * scale;
@@ -281,6 +280,7 @@ function initAngles(n) {
 }
 initAngles(2);
 
+// --- Generalized N-pendulum Lagrangian ---
 // Mass matrix: M[i][j] = L² · cos(θ_i − θ_j) · μ(i,j)
 // where μ(i,j) = (N − max(i,j)) · m  (mass from max(i,j) to end)
 // Force:  F[i] = −Σ_j L² · sin(θ_i − θ_j) · ω_j² · μ(i,j) − g·L·sin(θ_i)·μ_i
@@ -304,7 +304,6 @@ function computeAccelerations(th, om, outAlpha) {
     _F[i] = fi;
   }
 
-  // Gaussian elimination with partial pivoting
   for (let col = 0; col < N; col++) {
     let maxVal = Math.abs(_M[col * N + col]);
     let maxRow = col;
@@ -342,7 +341,6 @@ function computeAccelerations(th, om, outAlpha) {
 }
 
 function effectiveDt() {
-  // Smaller timestep for more segments
   if (N <= 5) return dt;
   if (N <= 15) return dt * 0.5;
   if (N <= 30) return dt * 0.25;
@@ -351,7 +349,6 @@ function effectiveDt() {
 }
 
 function stepsPerFrame() {
-  // More substeps to compensate for smaller dt (for stability)
   if (N <= 5) return 4;
   if (N <= 15) return 6;
   if (N <= 30) return 8;
@@ -391,13 +388,11 @@ function step() {
     omega[i] += (_k1w[i] + 2*_k2w[i] + 2*_k3w[i] + _k4w[i]) * tdt / 6;
   }
 
-  // Light damping for high N (to prevent energy blowup)
   if (N > 10) {
     const damp = N > 50 ? 0.9995 : N > 20 ? 0.9998 : 0.9999;
     for (let i = 0; i < N; i++) omega[i] *= damp;
   }
 
-  // Stability guard: if anything went NaN/Inf, reset (to avoid crashing)
   let blown = false;
   for (let i = 0; i < N; i++) {
     if (!isFinite(theta[i]) || !isFinite(omega[i])) { blown = true; break; }
@@ -499,7 +494,7 @@ function draw() {
     const j = joints[i + 1];
     const isFirst = i === 0;
     const isLast = i === N - 1;
-    const isDragged = dragging === i;
+    const isDragged = dragging === (i + 1);
 
     if (isLast) {
       ctx.beginPath();
@@ -586,7 +581,7 @@ function loop() {
       }
     }
   }
-  if (dragging >= 0) relaxChain();
+  if (dragging >= 1) relaxChain();
 
   draw();
   updateHUD();
@@ -632,26 +627,58 @@ timeSlider.addEventListener('input', () => {
   timeValEl.textContent = timeScale.toFixed(2) + '×';
 });
 
-// Fluid chain relaxation during drag
-function relaxChain() {
-  if (dragging < 0 || N < 2) return;
+// --- FABRIK Inverse Kinematics for drag ---
+// Solves the chain in position space, then converts back to angles.
 
-  for (let i = dragging + 1; i < N; i++) {
-    const distFromGrab = i - dragging;
-    const followWeight = Math.pow(0.65, distFromGrab);
-    const target = theta[i - 1] * followWeight;
-    let delta = target - theta[i];
-    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
-    delta = Math.max(-0.15, Math.min(0.15, delta * 0.18));
-    theta[i] += delta;
+function fabrikSolve(joints, dragJointIdx, targetX, targetY, iterations) {
+  const L = segLen();
+  const n = joints.length;
+
+  const pts = joints.map(j => ({ x: j.x, y: j.y }));
+
+  const pivotX = pts[0].x, pivotY = pts[0].y;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    pts[dragJointIdx].x = targetX;
+    pts[dragJointIdx].y = targetY;
+
+    for (let i = dragJointIdx; i >= 1; i--) {
+      const dx = pts[i - 1].x - pts[i].x;
+      const dy = pts[i - 1].y - pts[i].y;
+      const d = Math.hypot(dx, dy) || 1e-9;
+      pts[i - 1].x = pts[i].x + (dx / d) * L;
+      pts[i - 1].y = pts[i].y + (dy / d) * L;
+    }
+
+    pts[0].x = pivotX;
+    pts[0].y = pivotY;
+    for (let i = 0; i < n - 1; i++) {
+      const dx = pts[i + 1].x - pts[i].x;
+      const dy = pts[i + 1].y - pts[i].y;
+      const d = Math.hypot(dx, dy) || 1e-9;
+      pts[i + 1].x = pts[i].x + (dx / d) * L;
+      pts[i + 1].y = pts[i].y + (dy / d) * L;
+    }
   }
 
-  for (let i = dragging - 2; i >= 0; i--) {
-    const distFromGrab = dragging - i;
-    const pullWeight = Math.pow(0.35, distFromGrab);
-    let delta = theta[i + 1] - theta[i];
-    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
-    delta = Math.max(-0.06, Math.min(0.06, delta * 0.06 * pullWeight));
+  return pts;
+}
+
+function jointsToAngles(pts) {
+  for (let i = 0; i < N; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    const dy = pts[i + 1].y - pts[i].y;
+    theta[i] = Math.atan2(dx, dy);
+  }
+}
+
+function relaxChain() {
+  if (dragging < 1 || N < 2) return;
+  for (let i = dragging; i < N; i++) {
+    const distFromGrab = i - dragging + 1;
+    const gravityPull = 0.015 * Math.min(distFromGrab, 5);
+    let delta = -theta[i] * gravityPull;
+    delta = Math.max(-0.06, Math.min(0.06, delta));
     theta[i] += delta;
   }
 }
@@ -660,7 +687,6 @@ function mousePos(e) {
   const rect = canvas.getBoundingClientRect();
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
-
 function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -670,19 +696,19 @@ canvas.addEventListener('pointerdown', (e) => {
   let best = -1, bestD = grabRadius;
 
   const tipD = dist(m.x, m.y, joints[N].x, joints[N].y);
-  if (tipD < bestD) { best = N - 1; bestD = tipD; }
+  if (tipD < bestD) { best = N; bestD = tipD; }
 
   const firstD = dist(m.x, m.y, joints[1].x, joints[1].y);
-  if (firstD < bestD) { best = 0; bestD = firstD; }
+  if (firstD < bestD) { best = 1; bestD = firstD; }
 
   if (N <= 30) {
-    for (let i = 1; i < N - 1; i++) {
-      const d = dist(m.x, m.y, joints[i+1].x, joints[i+1].y);
+    for (let i = 2; i < N; i++) {
+      const d = dist(m.x, m.y, joints[i].x, joints[i].y);
       if (d < bestD) { best = i; bestD = d; }
     }
   }
 
-  if (best >= 0) {
+  if (best >= 1) {
     dragging = best;
     paused = true;
     pauseBtn.textContent = 'Resume';
@@ -699,28 +725,11 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   const m = mousePos(e);
 
-  if (dragging >= 0) {
-    const L = segLen();
-    let px = ox, py = oy;
-    for (let i = 0; i < dragging; i++) {
-      px += L * Math.sin(theta[i]);
-      py += L * Math.cos(theta[i]);
-    }
-
-    let dx = m.x - px;
-    let dy = m.y - py;
-    const d = Math.hypot(dx, dy);
-
-    const minDist = L * 0.15;
-    if (d < minDist) {
-      dx = Math.sin(theta[dragging]) * minDist;
-      dy = Math.cos(theta[dragging]) * minDist;
-    }
-
-    const rawTarget = Math.atan2(dx, dy);
-    let delta = rawTarget - theta[dragging];
-    delta = delta - Math.round(delta / (2 * Math.PI)) * 2 * Math.PI;
-    theta[dragging] += delta;
+  if (dragging >= 1) {
+    const joints = getJoints();
+    const iters = Math.min(N * 2, 20);
+    const solved = fabrikSolve(joints, dragging, m.x, m.y, iters);
+    jointsToAngles(solved);
   } else {
     const joints = getJoints();
     let near = false;
@@ -737,7 +746,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 canvas.addEventListener('pointerup', () => {
-  if (dragging >= 0) {
+  if (dragging >= 1) {
     dragging = -1;
     canvas.style.cursor = 'crosshair';
     omega.fill(0);
