@@ -2,6 +2,8 @@
 
 A real-time, interactive pendulum simulation built entirely in a single HTML file. It starts as a classic double pendulum and scales all the way up to a 100-segment chain — all driven by proper Lagrangian mechanics, not spring approximations or shortcuts.
 
+Try it [here!](https://coden01r.github.io/N-Pendulum/)
+
 **Author:** CodeN01R
 
 ---
